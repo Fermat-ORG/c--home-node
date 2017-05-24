@@ -9,7 +9,7 @@ using ProfileServer.Data.Models;
 namespace ProfileServer.Migrations
 {
     [DbContext(typeof(Context))]
-    [Migration("20170520084023_initial")]
+    [Migration("20170523094834_initial")]
     partial class initial
     {
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

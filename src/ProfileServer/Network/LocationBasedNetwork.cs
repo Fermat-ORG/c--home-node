@@ -36,7 +36,7 @@ namespace ProfileServer.Network
     private LocClient client;
 
     /// <summary>true if the component received current information about the server's neighborhood from the LOC server.</summary>
-    private bool locServerInitialized = false;
+    private volatile bool locServerInitialized = false;
     /// <summary>true if the component received current information about the server's neighborhood from the LOC server.</summary>
     public bool LocServerInitialized { get { return locServerInitialized; } }
 
