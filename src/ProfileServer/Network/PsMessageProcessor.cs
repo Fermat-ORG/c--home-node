@@ -49,6 +49,14 @@ namespace ProfileServer.Network
     /// <summary>List of server's network peers and clients owned by Network.Server component.</summary>
     public RelayList relayList;
 
+
+    /// <summary>List of all supported proximity protocol versions that this message processor implements.</summary>
+    public static HashSet<SemVer> AllSupportedVersions = new HashSet<SemVer>()
+    {
+      SemVer.V100
+    };
+
+
     /// <summary>
     /// Creates a new instance connected to the parent role server.
     /// </summary>
@@ -122,6 +130,14 @@ namespace ProfileServer.Network
                         responseMessage = await ProcessMessageGetProfileInformationRequestAsync(client, incomingMessage);
                         break;
 
+                      case SingleRequest.RequestTypeOneofCase.ProfileSearch:
+                        responseMessage = await ProcessMessageProfileSearchRequestAsync(client, incomingMessage);
+                        break;
+
+                      case SingleRequest.RequestTypeOneofCase.ProfileSearchPart:
+                        responseMessage = ProcessMessageProfileSearchPartRequest(client, incomingMessage);
+                        break;
+
                       case SingleRequest.RequestTypeOneofCase.ApplicationServiceSendMessage:
                         responseMessage = await ProcessMessageApplicationServiceSendMessageRequestAsync(client, incomingMessage);
                         break;
@@ -185,14 +201,6 @@ namespace ProfileServer.Network
 
                       case ConversationRequest.RequestTypeOneofCase.CallIdentityApplicationService:
                         responseMessage = await ProcessMessageCallIdentityApplicationServiceRequestAsync(client, incomingMessage);
-                        break;
-
-                      case ConversationRequest.RequestTypeOneofCase.ProfileSearch:
-                        responseMessage = await ProcessMessageProfileSearchRequestAsync(client, incomingMessage);
-                        break;
-
-                      case ConversationRequest.RequestTypeOneofCase.ProfileSearchPart:
-                        responseMessage = ProcessMessageProfileSearchPartRequest(client, incomingMessage);
                         break;
 
                       case ConversationRequest.RequestTypeOneofCase.AddRelatedIdentity:
@@ -406,74 +414,85 @@ namespace ProfileServer.Network
 
     /// <summary>
     /// Verifies that client's request was not sent against the protocol rules - i.e. that the role server
-    /// that received the message is serving the role the message was designed for and that the conversation 
-    /// status with the clients matches the required status for the particular message.
+    /// that received the message is serving the role the message was designed for, the protocol version matches
+    /// what the server support and that the conversation status with the clients matches the required status for the particular message.
     /// </summary>
     /// <param name="Client">Client that sent the request.</param>
     /// <param name="RequestMessage">Full request message.</param>
     /// <param name="RequiredRole">Server role required for the message, or null if all roles servers can handle this message.</param>
     /// <param name="RequiredConversationStatus">Required conversation status for the message, or null for single messages.</param>
+    /// <param name="SupportedVersions">List of supported versions for the specific request.</param>
     /// <param name="ResponseMessage">If the verification fails, this is filled with error response to be sent to the client.</param>
     /// <returns>true if the function succeeds (i.e. required conditions are met and the message can be processed), false otherwise.</returns>
-    public bool CheckSessionConditions(IncomingClient Client, PsProtocolMessage RequestMessage, ServerRole? RequiredRole, ClientConversationStatus? RequiredConversationStatus, out PsProtocolMessage ResponseMessage)
+    public bool CheckRequestConditions(IncomingClient Client, PsProtocolMessage RequestMessage, ServerRole? RequiredRole, ClientConversationStatus? RequiredConversationStatus, HashSet<SemVer> SupportedVersions, out PsProtocolMessage ResponseMessage)
     {
-      log.Trace("(RequiredRole:{0},RequiredConversationStatus:{1})", RequiredRole != null ? RequiredRole.ToString() : "null", RequiredConversationStatus != null ? RequiredConversationStatus.Value.ToString() : "null");
+      log.Trace("(RequiredRole:{0},RequiredConversationStatus:{1},SupportedVersions:[{2}])", RequiredRole != null ? RequiredRole.ToString() : "null", RequiredConversationStatus != null ? RequiredConversationStatus.Value.ToString() : "null", string.Join(",", SupportedVersions));
 
       bool res = false;
       ResponseMessage = null;
 
-      string requestName = RequestMessage.Request.ConversationTypeCase == Request.ConversationTypeOneofCase.SingleRequest ? "single request " + RequestMessage.Request.SingleRequest.RequestTypeCase.ToString() : "conversation request " + RequestMessage.Request.ConversationRequest.RequestTypeCase.ToString();
+      bool isSingleRequest = RequestMessage.Request.ConversationTypeCase == Request.ConversationTypeOneofCase.SingleRequest;
+      string requestName = isSingleRequest ? "single request " + RequestMessage.Request.SingleRequest.RequestTypeCase.ToString() : "conversation request " + RequestMessage.Request.ConversationRequest.RequestTypeCase.ToString();
 
       // RequiredRole contains one or more roles and the current server has to have at least one of them.
       if ((RequiredRole == null) || ((roleServer.Roles & (uint)RequiredRole.Value) != 0))
       {
-        if (RequiredConversationStatus == null)
+        SemVer clientRequestVersion = isSingleRequest ? new SemVer(RequestMessage.Request.SingleRequest.Version) : new SemVer(Client.MessageBuilder.Version);
+        if (SupportedVersions.Contains(clientRequestVersion))
         {
-          res = true;
+          if (RequiredConversationStatus == null)
+          {
+            res = true;
+          }
+          else
+          {
+            switch (RequiredConversationStatus.Value)
+            {
+              case ClientConversationStatus.NoConversation:
+              case ClientConversationStatus.ConversationStarted:
+                res = Client.ConversationStatus == RequiredConversationStatus.Value;
+                if (!res)
+                {
+                  log.Warn("Client sent {0} but the conversation status is {1}.", requestName, Client.ConversationStatus);
+                  ResponseMessage = Client.MessageBuilder.CreateErrorBadConversationStatusResponse(RequestMessage);
+                }
+                break;
+
+              case ClientConversationStatus.Verified:
+              case ClientConversationStatus.Authenticated:
+                // In case of Verified status requirement, the Authenticated status satisfies the condition as well.
+                res = (Client.ConversationStatus == RequiredConversationStatus.Value) || (Client.ConversationStatus == ClientConversationStatus.Authenticated);
+                if (!res)
+                {
+                  log.Warn("Client sent {0} but the conversation status is {1}.", requestName, Client.ConversationStatus);
+                  ResponseMessage = Client.MessageBuilder.CreateErrorUnauthorizedResponse(RequestMessage);
+                }
+                break;
+
+
+              case ClientConversationStatus.ConversationAny:
+                res = (Client.ConversationStatus == ClientConversationStatus.ConversationStarted)
+                  || (Client.ConversationStatus == ClientConversationStatus.Verified)
+                  || (Client.ConversationStatus == ClientConversationStatus.Authenticated);
+
+                if (!res)
+                {
+                  log.Warn("Client sent {0} but the conversation status is {1}.", requestName, Client.ConversationStatus);
+                  ResponseMessage = Client.MessageBuilder.CreateErrorBadConversationStatusResponse(RequestMessage);
+                }
+                break;
+
+              default:
+                log.Error("Unknown conversation status '{0}'.", Client.ConversationStatus);
+                ResponseMessage = Client.MessageBuilder.CreateErrorInternalResponse(RequestMessage);
+                break;
+            }
+          }
         }
         else
         {
-          switch (RequiredConversationStatus.Value)
-          {
-            case ClientConversationStatus.NoConversation:
-            case ClientConversationStatus.ConversationStarted:
-              res = Client.ConversationStatus == RequiredConversationStatus.Value;
-              if (!res)
-              {
-                log.Warn("Client sent {0} but the conversation status is {1}.", requestName, Client.ConversationStatus);
-                ResponseMessage = Client.MessageBuilder.CreateErrorBadConversationStatusResponse(RequestMessage);
-              }
-              break;
-
-            case ClientConversationStatus.Verified:
-            case ClientConversationStatus.Authenticated:
-              // In case of Verified status requirement, the Authenticated status satisfies the condition as well.
-              res = (Client.ConversationStatus == RequiredConversationStatus.Value) || (Client.ConversationStatus == ClientConversationStatus.Authenticated);
-              if (!res)
-              {
-                log.Warn("Client sent {0} but the conversation status is {1}.", requestName, Client.ConversationStatus);
-                ResponseMessage = Client.MessageBuilder.CreateErrorUnauthorizedResponse(RequestMessage);
-              }
-              break;
-
-
-            case ClientConversationStatus.ConversationAny:
-              res = (Client.ConversationStatus == ClientConversationStatus.ConversationStarted)
-                || (Client.ConversationStatus == ClientConversationStatus.Verified)
-                || (Client.ConversationStatus == ClientConversationStatus.Authenticated);
-
-              if (!res)
-              {
-                log.Warn("Client sent {0} but the conversation status is {1}.", requestName, Client.ConversationStatus);
-                ResponseMessage = Client.MessageBuilder.CreateErrorBadConversationStatusResponse(RequestMessage);
-              }
-              break;
-
-            default:
-              log.Error("Unknown conversation status '{0}'.", Client.ConversationStatus);
-              ResponseMessage = Client.MessageBuilder.CreateErrorInternalResponse(RequestMessage);
-              break;
-          }
+          log.Warn("Received {0} version {1}, but supported versions for this request are [{2}].", requestName, clientRequestVersion, string.Join(",", SupportedVersions));
+          ResponseMessage = Client.MessageBuilder.CreateErrorUnsupportedResponse(RequestMessage);
         }
       }
       else
@@ -532,10 +551,17 @@ namespace ProfileServer.Network
     {
       log.Trace("()");
 
+      PsProtocolMessage res = null;
+      if (!CheckRequestConditions(Client, RequestMessage, null, null, AllSupportedVersions, out res))
+      {
+        log.Trace("(-):*.Response.Status={0}", res.Response.Status);
+        return res;
+      }
+
       PsMessageBuilder messageBuilder = Client.MessageBuilder;
       PingRequest pingRequest = RequestMessage.Request.SingleRequest.Ping;
 
-      PsProtocolMessage res = messageBuilder.CreatePingResponse(RequestMessage, pingRequest.Payload.ToByteArray(), DateTime.UtcNow);
+      res = messageBuilder.CreatePingResponse(RequestMessage, pingRequest.Payload.ToByteArray(), DateTime.UtcNow);
 
       log.Trace("(-):*.Response.Status={0}", res.Response.Status);
       return res;
@@ -554,7 +580,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.Primary, null, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.Primary, null, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -635,7 +661,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer | ServerRole.ClientNonCustomer, null, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer | ServerRole.ClientNonCustomer, null, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -719,7 +745,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, null, ClientConversationStatus.NoConversation, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, null, ClientConversationStatus.NoConversation, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -799,7 +825,7 @@ namespace ProfileServer.Network
       log.Fatal("TODO UNIMPLEMENTED");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientNonCustomer, ClientConversationStatus.ConversationStarted, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientNonCustomer, ClientConversationStatus.ConversationStarted, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -926,7 +952,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.ConversationStarted, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.ConversationStarted, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -1009,7 +1035,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientNonCustomer | ServerRole.ServerNeighbor, ClientConversationStatus.ConversationStarted, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientNonCustomer | ServerRole.ServerNeighbor, ClientConversationStatus.ConversationStarted, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -1064,7 +1090,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -1205,7 +1231,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -1271,7 +1297,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -1326,7 +1352,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -1367,7 +1393,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer | ServerRole.ClientNonCustomer, ClientConversationStatus.Verified, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer | ServerRole.ClientNonCustomer, ClientConversationStatus.Verified, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -1500,7 +1526,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientAppService, null, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientAppService, null, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -1573,7 +1599,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientNonCustomer | ServerRole.ClientCustomer, null, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientNonCustomer | ServerRole.ClientCustomer, null, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -1654,14 +1680,14 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer | ServerRole.ClientNonCustomer, ClientConversationStatus.ConversationAny, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer | ServerRole.ClientNonCustomer, null, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
       }
 
       PsMessageBuilder messageBuilder = Client.MessageBuilder;
-      ProfileSearchRequest profileSearchRequest = RequestMessage.Request.ConversationRequest.ProfileSearch;
+      ProfileSearchRequest profileSearchRequest = RequestMessage.Request.SingleRequest.ProfileSearch;
       if (profileSearchRequest == null) profileSearchRequest = new ProfileSearchRequest();
 
       PsProtocolMessage errorResponse;
@@ -1929,14 +1955,14 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer | ServerRole.ClientNonCustomer, ClientConversationStatus.ConversationAny, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer | ServerRole.ClientNonCustomer, null, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
       }
 
       PsMessageBuilder messageBuilder = Client.MessageBuilder;
-      ProfileSearchPartRequest profileSearchPartRequest = RequestMessage.Request.ConversationRequest.ProfileSearchPart;
+      ProfileSearchPartRequest profileSearchPartRequest = RequestMessage.Request.SingleRequest.ProfileSearchPart;
 
       int cacheResultsCount;
       bool cacheIncludeImages;
@@ -1990,7 +2016,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -2105,7 +2131,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -2164,7 +2190,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer | ServerRole.ClientNonCustomer, null, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer | ServerRole.ClientNonCustomer, null, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -2256,7 +2282,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ServerNeighbor, ClientConversationStatus.Verified, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ServerNeighbor, ClientConversationStatus.Verified, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -2500,7 +2526,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ServerNeighbor, ClientConversationStatus.Verified, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ServerNeighbor, ClientConversationStatus.Verified, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -2527,7 +2553,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ServerNeighbor, ClientConversationStatus.Verified, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ServerNeighbor, ClientConversationStatus.Verified, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -2956,7 +2982,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ServerNeighbor, ClientConversationStatus.Verified, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ServerNeighbor, ClientConversationStatus.Verified, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -3155,7 +3181,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
@@ -3276,7 +3302,7 @@ namespace ProfileServer.Network
       log.Trace("()");
 
       PsProtocolMessage res = null;
-      if (!CheckSessionConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, out res))
+      if (!CheckRequestConditions(Client, RequestMessage, ServerRole.ClientCustomer, ClientConversationStatus.Authenticated, AllSupportedVersions, out res))
       {
         log.Trace("(-):*.Response.Status={0}", res.Response.Status);
         return res;
