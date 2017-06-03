@@ -295,8 +295,7 @@ namespace ProfileServer.Network
       int totalResultLimit = includeImages ? PsMessageProcessor.ProfileSearchMaxTotalRecordsWithImage : PsMessageProcessor.ProfileSearchMaxTotalRecordsWithoutImage;
 
       bool maxResponseRecordCountValid = (1 <= ProfileSearchRequest.MaxResponseRecordCount)
-        && (ProfileSearchRequest.MaxResponseRecordCount <= responseResultLimit)
-        && (ProfileSearchRequest.MaxResponseRecordCount <= ProfileSearchRequest.MaxTotalRecordCount);
+        && (ProfileSearchRequest.MaxResponseRecordCount <= responseResultLimit);
       if (!maxResponseRecordCountValid)
       {
         log.Debug("Invalid maxResponseRecordCount value '{0}'.", ProfileSearchRequest.MaxResponseRecordCount);
@@ -305,7 +304,10 @@ namespace ProfileServer.Network
 
       if (details == null)
       {
-        bool maxTotalRecordCountValid = (1 <= ProfileSearchRequest.MaxTotalRecordCount) && (ProfileSearchRequest.MaxTotalRecordCount <= totalResultLimit);
+        bool maxTotalRecordCountValid = (1 <= ProfileSearchRequest.MaxTotalRecordCount) 
+          && (ProfileSearchRequest.MaxTotalRecordCount <= totalResultLimit)
+          && (ProfileSearchRequest.MaxResponseRecordCount <= ProfileSearchRequest.MaxTotalRecordCount);
+
         if (!maxTotalRecordCountValid)
         {
           log.Debug("Invalid maxTotalRecordCount value '{0}'.", ProfileSearchRequest.MaxTotalRecordCount);
