@@ -166,7 +166,7 @@ namespace ProfileServer.Network
           if (await client.ConnectAsync())
           {
             // Announce our primary server interface to LOC.
-            if (await client.RegisterPrimaryServerRoleAsync(Config.Configuration.ServerRoles.GetRolePort((uint)ServerRole.Primary)))
+            if (await client.RegisterPrimaryServerRoleAsync(Config.Configuration.ServerRoles.GetRolePort((uint)ServerRole.Primary), Iop.Locnet.ServiceType.Profile))
             {
               // Ask LOC server about initial set of neighborhood nodes.
               if (await GetNeighborhoodInformationAsync())
