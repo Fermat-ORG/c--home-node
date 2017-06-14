@@ -18,9 +18,6 @@ To get more information about Profile Server's internals, check out [Architectur
 
 If you want to develop a client application (or a server in a role of a network client) that connects to the Profile Server and consumes its services, you will be interested in [Introduction for Developers of Client Apps](docs/CLIENT-APPS.md).
 
-## Message Protocols
-
-Message Protocols for Profile Server can be found [here](https://github.com/Internet-of-People/message-protocol/blob/master/IopProfileServer.proto)
 
 
 ## TO-DOs and Possible Improvements
