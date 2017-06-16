@@ -110,6 +110,17 @@ is its view with the view of other nodes in its neighborhood. This could greatly
 IP based limits.
 
 
+### Server Challenge to Include Server Address
+
+Currently there is an open attack vector that allows server to act as a client for another server and forward the challenge to its client 
+who by signing the challenge provides possibility of impersonation to the server in the session with the second server.
+
+To mitigate this issue, we need to include server's address in the challenge being signed by the client, so that client is aware of which 
+server will consume this signed data.
+
+
+
+
 
 ## Optimizations
 
