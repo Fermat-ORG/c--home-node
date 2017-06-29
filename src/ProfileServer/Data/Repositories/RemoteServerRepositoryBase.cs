@@ -6,12 +6,12 @@ using System.Threading.Tasks;
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore.Storage;
 using IopCommon;
-using IopServerCore.Data;
+using IopAppCore.Data;
 using System.Net;
 using System.Runtime.CompilerServices;
 using Iop.Profileserver;
 using ProfileServer.Network;
-using IopServerCore.Kernel;
+using IopAppCore.Kernel;
 
 namespace ProfileServer.Data.Repositories
 {

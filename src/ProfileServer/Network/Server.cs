@@ -4,8 +4,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Threading;
 using IopCommon;
-using IopCrypto;
-using IopServerCore.Kernel;
+using IopAppCore.Kernel;
 using System.Threading.Tasks;
 
 namespace ProfileServer.Network

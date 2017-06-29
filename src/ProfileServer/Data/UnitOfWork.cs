@@ -2,7 +2,7 @@
 using ProfileServer.Data.Repositories;
 using System;
 using IopCommon;
-using IopServerCore.Data;
+using IopAppCore.Data;
 
 namespace ProfileServer.Data
 {

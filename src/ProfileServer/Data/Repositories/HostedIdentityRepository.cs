@@ -9,9 +9,9 @@ using Microsoft.EntityFrameworkCore;
 using IopProtocol;
 using Microsoft.EntityFrameworkCore.Storage;
 using IopCommon;
-using IopServerCore.Data;
+using IopAppCore.Data;
 using System.Runtime.CompilerServices;
-using IopServerCore.Kernel;
+using IopAppCore.Kernel;
 
 namespace ProfileServer.Data.Repositories
 {

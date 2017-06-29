@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using IopCommon;
-using IopServerCore.Data;
+using IopAppCore.Data;
 
 namespace ProfileServer.Data.Repositories
 {

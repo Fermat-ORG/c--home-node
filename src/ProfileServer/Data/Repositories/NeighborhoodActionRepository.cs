@@ -11,7 +11,7 @@ using ProfileServer.Network;
 using ProfileServer.Kernel;
 using Microsoft.EntityFrameworkCore.Storage;
 using IopCommon;
-using IopServerCore.Data;
+using IopAppCore.Data;
 using IopServerCore.Kernel;
 
 namespace ProfileServer.Data.Repositories

@@ -9,8 +9,8 @@ using ProfileServer.Data;
 using ProfileServer.Data.Models;
 using Iop.Can;
 using IopCommon;
-using IopServerCore.Kernel;
-using IopServerCore.Data;
+using IopAppCore.Kernel;
+using IopAppCore.Data;
 using IopServerCore.Network.CAN;
 using Iop.Profileserver;
 

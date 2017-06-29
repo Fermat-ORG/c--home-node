@@ -17,7 +17,7 @@ using System.Security.Authentication;
 using ProfileServer.Data;
 using Microsoft.EntityFrameworkCore.Storage;
 using IopCommon;
-using IopServerCore.Data;
+using IopAppCore.Data;
 using IopServerCore.Network;
 
 namespace ProfileServer.Network

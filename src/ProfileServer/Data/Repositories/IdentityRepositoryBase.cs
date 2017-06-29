@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using IopProtocol;
 using ProfileServer.Network;
 using IopCommon;
-using IopServerCore.Data;
+using IopAppCore.Data;
 
 namespace ProfileServer.Data.Repositories
 {

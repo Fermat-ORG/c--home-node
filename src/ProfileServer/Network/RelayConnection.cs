@@ -9,9 +9,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IopCommon;
-using IopServerCore.Kernel;
+using IopAppCore.Kernel;
 using IopServerCore.Network;
-using Google.Protobuf;
 using Iop.Shared;
 
 namespace ProfileServer.Network

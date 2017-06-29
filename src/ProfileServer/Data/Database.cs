@@ -8,8 +8,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore.Storage;
 using IopCommon;
-using IopServerCore.Kernel;
-using IopServerCore.Data;
+using IopAppCore.Kernel;
+using IopAppCore.Data;
 
 namespace ProfileServer.Data
 {

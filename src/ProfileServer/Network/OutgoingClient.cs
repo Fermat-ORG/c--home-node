@@ -14,9 +14,8 @@ using System.Security.Authentication;
 using System.Threading;
 using System.Threading.Tasks;
 using IopCommon;
+using IopAppCore.Kernel;
 using IopServerCore.Network;
-using Google.Protobuf;
-using IopServerCore.Kernel;
 using Iop.Shared;
 
 namespace ProfileServer.Network

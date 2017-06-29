@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IopProtocol;
 using IopCommon;
-using IopServerCore.Kernel;
+using IopAppCore.Kernel;
 using IopServerCore.Network.LOC;
 
 namespace ProfileServer.Network
